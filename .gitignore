@@ -1,0 +1,14 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+make_nsaid_variants.R
+*.tiff
+*.Rda
+*.csv
+*.html
+*.docx
+*_files
+*_cache
+export manuscript.Rmd
+export supp.Rmd

@@ -1,0 +1,2004 @@
+---
+title: "NSAIDS in pregnancy - all"
+author: "Ariel A Hasidim"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: hide
+    code_download: true
+    toc: yes
+    number_sections: yes
+    toc_float: yes
+    toc_collapsed: yes
+    toc_depth: 3
+    theme: simplex
+---
+# Meta
+## setup
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dpi=300,fig.width=7)
+knitr::opts_chunk$set(warning = TRUE, message = TRUE) 
+
+set.seed(54321)
+
+# Installs pacman ("package manager") if needed
+if (!require("pacman")) install.packages("pacman")
+
+pacman::p_load(
+  pacman,
+  tidyverse,
+  ggsci,
+  readr,
+  gtsummary,
+  readxl,
+  labelled,
+  MatchIt,
+  marginaleffects,
+  gt,
+  gtExtras,
+  tidysmd,
+  AER,
+  cards,
+  UpSetR
+) 
+```
+
+## wrangling
+```{r data, include=FALSE}
+##### GET DATA
+raw_df <- read.csv('./NSAIDS_Other_Antipyretics_Sensitivity.csv') %>%
+  left_join(read.csv('./paracetamol id.csv'), by = "AdminNum") %>%
+  left_join(read.csv('./dipyron id.csv'), by = "AdminNum") %>%
+  left_join(read.csv('./indication id.csv'), by = "AdminNum") %>%
+  replace_na(list(
+    Musculoskeletal = 0,
+    Pain.Inflammatory = 0,
+    Injury.Fracture = 0,
+    Pregnancy.related = 0,
+    Fever.Infection = 0
+  ))
+
+# assigning labels from csv file
+metadata <- read_excel("metadata.xlsx") |> deframe()
+
+##### DATA WRANGLING
+# df <- raw_df %>% select(
+
+clean_df <- raw_df %>%
+  mutate(
+    MPatientIdentity = if_else(
+      is.na(MPatientIdentity),
+      AdminNum+30000000,
+      MPatientIdentity
+    ),
+    Congenital_Malformations_Major = if_else(
+      is.na(Congenital_Malformations_Major),
+      if_else(
+        CVS_Malformations +
+          MSK_Malformations +
+          NEURO_Malformations +
+          CleftPalate_Malformations +
+          GI_Malformations +
+          UG_Malformations > 0,
+        1,
+        0
+      ),
+      Congenital_Malformations_Major
+    ),
+    SexCode = case_when(SexCode == "Male" ~ 1, SexCode == "Female" ~ 0, .default = NA),
+    Diabetes = replace_na(Diabetes, 0),
+    pregestational_diabetes = if_else((Diabetes == 1) &
+                                        (Gestational_Diabetes == 0), 1, 0),
+    Smoker = replace_na(Smoker, 0),
+    LOPC = replace_na(LOPC, 0),
+    PregnancyTermination = as.integer(PregnancyTermination),
+    BirthYearGroup = cut(
+      BirthTerminationYear,
+      breaks = seq(1998, 2017 + 1, by = 5),
+      right = FALSE,
+      labels = c("1998–2002", "2003–2007", "2008–2012", "2013–2017")
+    ),
+    Mom_Age_Group = cut(
+      Mom_Age,
+      breaks = c(-Inf, 19, 24, 29, 34, 39, 44, Inf),
+      right = TRUE,
+      labels = c("<20", "20–24", "25–29", "30–34", "35–39", "40–44", "≥45")
+    ),
+    first_trimester_exposure_any = (
+      if_else(
+        first_trimester_exposure_Ibuprofen + first_trimester_exposure_Diclofenac +
+          first_trimester_exposure_Naproxen + first_trimester_exposure_Indometacin +
+          first_trimester_exposure_Etodolac + first_trimester_exposure_Piroxicam +
+          first_trimester_exposure_Lornoxicam > 0,
+        1,
+        0
+      )
+    ),
+    first_trimester_exposure_any_lbl = if_else(first_trimester_exposure_any == 0, "Unexposed", "NSAIDS"),
+    first_trimester_exposure_other_antipyretics = if_else(first_trimester_exposure_Paracetamol + first_trimester_exposure_Dipyrone > 0, 1, 0),
+    PregnancyNum = if_else(PregnancyNum > 25, NA, PregnancyNum),
+    first_trimester_ddd_any = pmax(
+      first_trimester_DDD_Ibuprofen,
+      first_trimester_DDD_Diclofenac,
+      first_trimester_DDD_Naproxen,
+      first_trimester_DDD_Indometacin,
+      first_trimester_DDD_Etodolac,
+      first_trimester_DDD_Piroxicam,
+      first_trimester_DDD_Lornoxicam
+    ),
+    ddd_class_any = factor(
+      case_when(
+        first_trimester_ddd_any > 21 ~ 3,
+        first_trimester_ddd_any > 7 ~ 2,
+        first_trimester_ddd_any >= 1 ~ 1,
+        .default = 0
+      )
+    )
+  )
+
+clean_df <- clean_df |> 
+  labelled::set_variable_labels(!!!metadata, .strict = FALSE)
+
+clean_df_excluded <- clean_df %>%
+  transmute(
+    first_trimester_exposure_any,
+    first_trimester_exposure_any_lbl,
+    MPatientIdentity,
+    first_trimester_exposure_Paracetamol,
+    first_trimester_exposure_Dipyrone,
+    first_trimester_exposure_other_antipyretics,
+    other_antipyretics_before_NSAIDs,
+    other_antipyretics_after_NSAIDs,
+    New_MomAge,
+    Mom_Age,
+    Mom_Age_Group,
+    Bedouin,
+    pregnancy_termination,
+    LOPC,
+    PregnancyAge_Final,
+    Smoker,
+    Diabetes,
+    pregestational_diabetes,
+    Gestational_Diabetes,
+    SexCode,
+    NSAID_indication,
+    Congenital_Malformations_Major,
+    CVS_Malformations,
+    MSK_Malformations,
+    NEURO_Malformations,
+    CleftPalate_Malformations,
+    GI_Malformations,
+    UG_Malformations,
+    Perinatal_Death,
+    PregnancyTermination,
+    BirthTerminationYear,
+    BirthYearGroup,
+    LBW,
+    VLBW,
+    Apgar1,
+    Apgar5,
+    InfantWeigth,
+    PregnancyNum,
+    obesity,
+    folic_acid,
+    fertilitytx,
+    insemination,
+    ivf
+  ) %>%
+  drop_na(
+    Mom_Age,
+    Bedouin,
+    PregnancyNum,
+    LOPC,
+    NSAID_indication,
+    BirthTerminationYear,
+    Diabetes,
+    obesity,
+    folic_acid,
+    CVS_Malformations,
+    MSK_Malformations,
+    NEURO_Malformations,
+    CleftPalate_Malformations,
+    GI_Malformations,
+    UG_Malformations
+  )
+
+clean_df_excluded <- clean_df_excluded |> 
+  labelled::set_variable_labels(!!!metadata, .strict = FALSE)
+```
+
+## functions
+```{r functions}
+est_ci <- function(est, low, high) {
+  paste0(round(est, 2), " [", round(low, 2), ", ", round(high, 2), "]")
+}
+
+rr_summery_cus <- function(
+    exposure,                       # bare column (e.g., first_trimester_exposure_Ibuprofen)
+    outcome,                        # bare column (e.g., Congenital_Malformations_Major)
+    vars,                           # character vector of adjustment terms
+    data,                           # data.frame / tibble
+    family = poisson(link = "log"),
+    unexposed_label = "unexposed",
+    exposed_label   = "nsaids",
+    wts_col = "weights",
+    cluster_col = NA
+) {
+  expo <- deparse1(substitute(exposure))
+  outc <- deparse1(substitute(outcome))
+
+  # label fallback
+  out_label <- tryCatch({
+    lab <- labelled::var_label(data[[outc]])
+    if (is.null(lab) || identical(lab, "")) outc else as.character(lab)
+  }, error = function(e) outc)
+
+  # --- helpers ---
+  expo_factorize <- function(df, prefix, pred_df) {
+    pred_df %>%
+      transmute(
+        "{expo}" := .data[[expo]],
+        .grp = if_else(.data[[expo]] == 0, unexposed_label, exposed_label),
+        "{prefix}_incidence"      := estimate * 1000,
+        "{prefix}_incidence_low"  := conf.low * 1000,
+        "{prefix}_incidence_high" := conf.high * 1000
+      ) %>%
+      select(.grp, starts_with(paste0(prefix, "_"))) %>%
+      pivot_wider(
+        names_from = .grp,
+        values_from = c(
+          any_of(paste0(prefix, c("_incidence","_incidence_low","_incidence_high")))
+        )
+      )
+  }
+
+  rr_cols <- function(prefix, cmp_df) {
+    cmp_df %>%
+      transmute(
+        "{prefix}_rr"      := estimate,
+        "{prefix}_rr_low"  := conf.low,
+        "{prefix}_rr_high" := conf.high
+      )
+  }
+
+  # --- formulas ---
+  f_unadj <- reformulate(expo, response = outc)
+  f_adj   <- reformulate(c(expo, vars), response = outc)
+
+  # --- 1) Unadjusted ---
+  fit_unadj <- glm(f_unadj, data = data, family = family)
+
+  pred_unadj <- avg_predictions(fit_unadj, variables = expo)
+  cmp_unadj  <- avg_comparisons(fit_unadj, variables = expo, comparison = "lnratioavg", transform = "exp")
+
+  out_tbl <- bind_cols(
+    expo_factorize(data, "unadj", pred_unadj),
+    rr_cols("unadj", cmp_unadj)
+  )
+
+  # --- 2) Adjusted ---
+  fit_adj <- glm(f_adj, data = data, family = family)
+
+  pred_adj <- avg_predictions(fit_adj, variables = expo, type = "response")
+  
+  cmp_adj  <- avg_comparisons(
+    fit_adj,
+    variables = expo,
+    type = "response",
+    comparison = "lnratioavg",
+    transform = "exp",
+    vcov = if (is.na(cluster_col)) "HC3" else as.formula(paste0("~", cluster_col))
+  )
+  
+  out_tbl <- out_tbl %>%
+    bind_cols(
+      expo_factorize(data, "adj", pred_adj),
+      rr_cols("adj", cmp_adj)
+    )
+
+  # --- 3) Adjusted + weights (if available) ---
+  has_w <- (wts_col %in% names(data))
+  has_c <- (!is.na(cluster_col))
+
+  if (has_w) {
+    fit_w <- glm(f_adj, data = data, family = family, weights = data[[wts_col]])
+    vcov_arg <- if (has_c) as.formula(paste0("~subclass + ", cluster_col)) else ~subclass
+
+    pred_w <- avg_predictions(
+      fit_w,
+      variables = expo,
+      type = "response",
+      vcov = vcov_arg,
+      wts  = if (has_c) FALSE else wts_col
+    )
+
+    cmp_w <- avg_comparisons(
+      fit_w,
+      variables = expo,
+      type = "response",
+      comparison = "lnratioavg",
+      transform = "exp",
+      vcov = vcov_arg,
+      wts  = if (has_c) FALSE else wts_col
+    )
+    
+    out_tbl <- out_tbl %>%
+      bind_cols(
+        expo_factorize(data, "adj_wts", pred_w),
+        rr_cols("adj_wts", cmp_w)
+      )
+  } else {
+    empty_w <- tibble(
+      adj_wts_incidence_unexposed = NA_real_,
+      adj_wts_incidence_nsaids    = NA_real_,
+      adj_wts_incidence_low_unexposed = NA_real_,
+      adj_wts_incidence_low_nsaids    = NA_real_,
+      adj_wts_incidence_high_unexposed = NA_real_,
+      adj_wts_incidence_high_nsaids    = NA_real_,
+      adj_wts_rr = NA_real_,
+      adj_wts_rr_low = NA_real_,
+      adj_wts_rr_high = NA_real_
+    )
+    out_tbl <- bind_cols(out_tbl, empty_w)
+  }
+
+  out_tbl %>% mutate(malformation = out_label)
+}
+```
+
+# Population
+
+## Table1
+```{r}
+table1 <- clean_df %>%
+  transmute (
+    first_trimester_exposure_any_lbl,
+    BirthTerminationYear = BirthYearGroup,
+    Mom_Age = Mom_Age_Group,
+    Bedouin,
+    obesity,
+    Smoker,
+    Diabetes,
+    NSAID_indication,
+    first_trimester_exposure_other_antipyretics,
+    PregnancyNum,
+    PregnancyAge_Final,
+    fertilitytx,
+    insemination,
+    ivf,
+    LOPC,
+    folic_acid,
+    SexCode,
+    pregnancy_termination,
+  ) %>%
+  tbl_summary(
+    by = first_trimester_exposure_any_lbl,
+    type = list(
+      c() ~ "continuous",
+      c(BirthTerminationYear, Mom_Age) ~ "categorical",
+      c(
+        Bedouin,
+        Smoker,
+        Diabetes,
+        SexCode,
+        LOPC,
+        pregnancy_termination,
+        NSAID_indication,
+        obesity,
+        folic_acid,
+        fertilitytx,
+        insemination,
+        ivf,
+        first_trimester_exposure_other_antipyretics
+      ) ~ "dichotomous"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)",
+      c(PregnancyAge_Final, PregnancyNum) ~ "{median} ({p25}, {p75})"
+    ),
+    missing = "ifany",
+    missing_text = "Missing"
+  )  %>%
+  add_p() %>%
+  bold_labels() %>%
+  modify_indent(columns = label,
+                rows = variable %in% c("insemination", "ivf"))
+
+table1
+```
+
+
+## NSAIDs and Other Antipyretics exposures and intersections
+
+UpSetR generates static UpSet plots. The UpSet technique visualizes set intersections in a matrix layout and introduces aggregates based on groupings and queries. 
+
+```{r}
+clean_df %>%
+  transmute(
+    Ibuprofen   = as.integer(first_trimester_exposure_Ibuprofen),
+    Diclofenac  = as.integer(first_trimester_exposure_Diclofenac),
+    Naproxen    = as.integer(first_trimester_exposure_Naproxen),
+    Indometacin = as.integer(first_trimester_exposure_Indometacin),
+    Etodolac    = as.integer(first_trimester_exposure_Etodolac),
+    Piroxicam   = as.integer(first_trimester_exposure_Piroxicam),
+    Lornoxicam  = as.integer(first_trimester_exposure_Lornoxicam),
+    "Other Antipyretics" = first_trimester_exposure_other_antipyretics
+  ) %>%
+  UpSetR::upset(
+  sets = c("Other Antipyretics", "Ibuprofen", "Diclofenac","Naproxen","Etodolac","Indometacin","Piroxicam","Lornoxicam"),
+  nsets = 0,
+  nintersects = 10,        # כמה שילובים להציג
+  order.by = "freq",
+  decreasing = TRUE,
+  mb.ratio = c(0.6, 0.4),  # יחס בין main bars ל-set size bars
+  empty.intersections = "off"
+  # ,
+  #   queries = list(
+  #   list(
+  #     query = intersects,
+  #     params = "Other Antipyretics",
+  #     color = "orange",
+  #     active = TRUE
+  #   )
+  # )
+)
+```
+
+
+## Annual exposure rates
+
+```{r}
+clean_df %>%
+  transmute(
+    BirthTerminationYear,
+    first_trimester_exposure_Ibuprofen,
+    first_trimester_exposure_Diclofenac,
+    first_trimester_exposure_Naproxen,
+    first_trimester_exposure_Indometacin,
+    first_trimester_exposure_Etodolac,
+    first_trimester_exposure_Piroxicam,
+    first_trimester_exposure_Lornoxicam
+  ) %>%
+  summarise(
+    .by = BirthTerminationYear,
+    Ibuprofen = mean(first_trimester_exposure_Ibuprofen) * 100000,
+    Diclofenac = mean(first_trimester_exposure_Diclofenac) * 100000,
+    Naproxen = mean(first_trimester_exposure_Naproxen) * 100000,
+    Indometacin = mean(first_trimester_exposure_Indometacin) * 100000,
+    Etodolac = mean(first_trimester_exposure_Etodolac) * 100000,
+    Piroxicam = mean(first_trimester_exposure_Piroxicam) * 100000,
+    Lornoxicam = mean(first_trimester_exposure_Lornoxicam) * 100000
+  ) %>%
+  pivot_longer(!BirthTerminationYear,
+               names_to = "nsaid",
+               values_to = "exposure") %>%
+  mutate(nsaid = factor(
+    nsaid,
+    levels = c(
+      "Ibuprofen",
+      "Diclofenac",
+      "Naproxen",
+      "Indometacin",
+      "Etodolac",
+      "Piroxicam",
+      "Lornoxicam"
+    )
+  )) %>%
+  ggplot(aes(
+    x = BirthTerminationYear,
+    y = exposure,
+    color = nsaid,
+    group = nsaid
+  )) +
+  geom_line(aes(linetype = nsaid), linewidth = 1) +
+  geom_point(aes(shape = nsaid), size = 2) +
+  labs(
+    x = "Year of Birth/Termination",
+    y = "Exposures per 100,000 pregnancies",
+    color = "NSAID",
+    linetype = "NSAID",
+    shape = "NSAID"
+  ) +
+  scale_color_nejm() +
+  theme_classic()
+```
+
+## NSAIDs indication breakdown
+
+```{r}
+nsaid_indication_tbl <- clean_df %>%
+  select (
+    first_trimester_exposure_any_lbl,
+    Musculoskeletal,
+    Pain.Inflammatory,
+    Injury.Fracture,
+    Pregnancy.related,
+    Fever.Infection
+  ) %>%
+  tbl_summary(
+    by = first_trimester_exposure_any_lbl,
+    type = list(
+      c() ~ "continuous",
+      c() ~ "categorical",
+      c(
+        Musculoskeletal,
+        Pain.Inflammatory,
+        Injury.Fracture,
+        Pregnancy.related,
+        Fever.Infection
+      ) ~ "dichotomous"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)",
+      c() ~ "{median} ({p25}, {p75})"
+    ),
+    missing = "ifany",
+    missing_text = "Missing"
+  )  %>%
+  add_p() %>%
+  bold_labels()
+
+nsaid_indication_tbl
+```
+
+## Table2
+
+```{r}
+table2 <- clean_df %>%
+  select(
+    first_trimester_exposure_any_lbl,
+    Congenital_Malformations_Major,
+    CVS_Malformations,
+    MSK_Malformations,
+    NEURO_Malformations,
+    CleftPalate_Malformations,
+    GI_Malformations,
+    UG_Malformations,
+    PregnancyTermination,
+    Perinatal_Death
+  ) %>%
+  tbl_summary(
+    by = first_trimester_exposure_any_lbl,
+    type = list(
+      c() ~ "continuous",
+      c() ~ "categorical",
+      c(
+        Congenital_Malformations_Major,
+        CVS_Malformations,
+        MSK_Malformations,
+        NEURO_Malformations,
+        CleftPalate_Malformations,
+        GI_Malformations,
+        UG_Malformations,
+        PregnancyTermination,
+        Perinatal_Death
+      ) ~ "dichotomous"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)",
+      c() ~ "{median} ({p25}, {p75})"
+    ),
+    missing = "no"
+  ) %>%
+  add_n() %>%
+  add_p()
+
+table2
+```
+
+## Multivar for "Major Malformations", no matching
+
+### Assesing overdispersion:
+
+This is the the source for the method with refrences:
+
+-   <https://stats.stackexchange.com/a/66593/323174>
+
+```{r}
+# For poisson model
+rd <- glm(Congenital_Malformations_Major ~ 1, data = clean_df, family = poisson(link = "log"))
+dispersiontest(rd,trafo=1) # should have insignificant p-value
+```
+
+### Poisson with log link 
+
+summary:
+
+```{r}
+m1.fit <-
+  glm(
+    Congenital_Malformations_Major ~ first_trimester_exposure_any +
+    BirthTerminationYear +
+    I(BirthTerminationYear ^ 2) +
+    Mom_Age + 
+    LOPC +
+    Bedouin + 
+    NSAID_indication +
+    Diabetes +
+    PregnancyNum +
+    obesity +
+    folic_acid +
+    Smoker +
+    first_trimester_exposure_other_antipyretics,
+    data = clean_df,
+    family = poisson(link = "log") # account for OVERDISPERSION in BINARY outcome
+  )
+
+summary(m1.fit)
+```
+
+full regression (exponentiated = OR):
+```{r}
+tbl_regression(m1.fit, exponentiate = TRUE)
+```
+
+marginal RR effect: <!-- <= botton line -->
+
+```{r}
+avg_comparisons(
+  m1.fit,
+  variables = "first_trimester_exposure_any",
+  type = "response", # <- doesnt make any change
+  comparison = "lnratioavg",
+  transform = "exp",
+  vcov = ~MPatientIdentity
+)
+```
+
+## DDD
+
+### Table1
+```{r}
+table1_ddd <- clean_df %>%
+  select(
+    ddd_class_any,
+    BirthYearGroup,
+    Mom_Age_Group,
+    Bedouin,
+    obesity,
+    Smoker,
+    Diabetes,
+    NSAID_indication,
+    first_trimester_exposure_other_antipyretics,
+    PregnancyNum,
+    PregnancyAge_Final,
+    fertilitytx,
+    insemination,
+    ivf,
+    LOPC,
+    folic_acid,
+    SexCode,
+    pregnancy_termination,
+  ) %>%
+  tbl_summary(
+    by = ddd_class_any,
+    type = list(
+      c() ~ "continuous",
+      c(BirthYearGroup, Mom_Age_Group) ~ "categorical",
+      c(
+        Bedouin,
+        Smoker,
+        Diabetes,
+        SexCode,
+        LOPC,
+        pregnancy_termination,
+        NSAID_indication,
+        obesity,
+        folic_acid,
+        fertilitytx,
+        insemination,
+        ivf,
+        first_trimester_exposure_other_antipyretics
+      ) ~ "dichotomous"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)",
+      c(PregnancyAge_Final, PregnancyNum) ~ "{median} ({p25}, {p75})"
+    ),
+    missing = "ifany",
+    missing_text = "Missing"
+  )  %>%
+  add_p(
+    test = list(
+      all_continuous() ~ "kruskal.test",
+      all_categorical() ~ "fisher.test"
+    ),
+    test.args = list(
+      all_tests("fisher.test") ~ list(simulate.p.value = TRUE, B = 10000)
+    )
+  )
+
+table1_ddd
+```
+
+### Analysis
+
+```{r}
+m.fit <-
+  glm(
+    Congenital_Malformations_Major ~ ddd_class_any + 
+    BirthTerminationYear +
+    I(BirthTerminationYear ^ 2) +
+    Mom_Age + 
+    LOPC +
+    Bedouin + 
+    NSAID_indication +
+    Diabetes +
+    PregnancyNum +
+    obesity +
+    folic_acid +
+    Smoker +
+    first_trimester_exposure_other_antipyretics,
+    data = clean_df,
+    family = poisson(link = "log")
+  )
+
+rx <- "mean\\((\\d+)\\)\\s*/\\s*mean\\(0\\)"
+
+ddd_rr_df <- avg_comparisons(
+      m.fit,
+      variables  = "ddd_class_any",
+      type = "response",
+      comparison = "lnratioavg",
+      transform = "exp",
+      vcov = ~MPatientIdentity
+    ) %>%
+      as.data.frame() %>%
+      transmute(
+        class = str_match(contrast, rx)[, 2],
+        estimate = estimate,
+        p.value  = p.value,
+        conf.low = conf.low,
+        conf.high = conf.high
+      ) %>%
+      bind_rows(
+        tibble(
+          class = "0",
+          estimate = 1,
+          `2.5 %` = NA_real_,
+          `97.5 %` = NA_real_,
+          `Pr(>|z|)` = NA_real_
+        )
+      )
+
+ddd_table <- clean_df %>%
+  select(Congenital_Malformations_Major, ddd_class_any) %>%
+  summarise(
+    .by = ddd_class_any,
+    n = sum(Congenital_Malformations_Major == 1, na.rm = TRUE),
+    total = sum(!is.na(Congenital_Malformations_Major)),
+    pct   = 100 * n / total,
+    label = sprintf("%d/%d (%.1f%%)", n, total, pct)
+  ) %>%
+  transmute(class = ddd_class_any, Congenital_Malformations_Major = label) %>%
+  left_join(ddd_rr_df,
+  by = join_by(class)) %>%
+  arrange(class) %>%
+  transmute(
+    class = case_when(
+      class == 3 ~ ">21",
+      class == 2 ~ "8-21",
+      class == 1 ~ "1-7",
+      class == 0 ~ "None"
+    ),
+    Congenital_Malformations_Major,
+    aRR = est_ci(estimate, conf.low, conf.high)
+  ) %>%
+  gt() %>%
+  cols_label(
+    class = "Total DDD for NSAIDs",
+    Congenital_Malformations_Major = "Major Congenital Malformations",
+    aRR = "Adjusted RR (%95 CI)"
+  )
+
+ddd_table
+```
+
+# Matched Cohort
+
+## Matching
+
+```{r}
+# Mahalanobis distance, 1:1 nearest neighbor matching with no replacement
+m.out <- matchit(
+  first_trimester_exposure_any ~ 
+    BirthTerminationYear +
+    I(BirthTerminationYear ^ 2) +
+    Mom_Age + 
+    LOPC +
+    Bedouin + 
+    NSAID_indication +
+    Diabetes +
+    PregnancyNum +
+    obesity +
+    folic_acid +
+    Smoker +
+    first_trimester_exposure_other_antipyretics,
+  data = clean_df_excluded,
+  method = "quick",
+  estimand = "ATE"
+)
+
+m.data <- match.data(m.out) |>
+  labelled::set_variable_labels(!!!metadata, .strict = FALSE)
+
+ess_treated  <- formatC(cobalt::bal.tab(m.out, un = FALSE)$Observations["Matched (ESS)", "Treated"],  format = "f", digits = 0, big.mark = ",")
+ess_control  <- formatC(cobalt::bal.tab(m.out, un = FALSE)$Observations["Matched (ESS)", "Control"],  format = "f", digits = 0, big.mark = ",")
+```
+
+## Assessing the Quality Excluded and Matched Cohort
+
+Model specifications:
+
+```{r}
+m.out
+```
+
+Summary:
+
+```{r, cache=TRUE}
+# Checking balance before and after matching:
+m.summary <- summary(m.out)
+
+m.summary
+```
+
+
+### Love Plot
+
+```{r, cache=TRUE}
+# Plot balance
+cobalt::love.plot(m.out, binary = "std", thresholds = c(m = .1))
+```
+
+## Table 1
+
+```{r}
+# Variables of interest
+vars <- c(
+  "first_trimester_exposure_any",
+  "Mom_Age",
+  "Bedouin",
+  "PregnancyNum",
+  "LOPC",
+  "Diabetes",
+  "SexCode",
+  "pregnancy_termination",
+  "BirthTerminationYear",
+  "NSAID_indication",
+  "obesity",
+  "folic_acid",
+  "Smoker",
+  "SexCode",
+  "pregestational_diabetes",
+  "fertilitytx",
+  "insemination",
+  "ivf",
+  "PregnancyAge_Final",
+  "first_trimester_exposure_other_antipyretics"
+)
+
+# SMDs before matching
+smds <- tidy_smd(
+  .df = m.data,
+  .vars = vars,
+  .group = first_trimester_exposure_any,
+  .wts = weights,
+  include_observed = TRUE,
+  na.rm = TRUE
+) %>%
+  select(-first_trimester_exposure_any) %>%
+  pivot_wider(names_from = method, values_from = smd) %>%
+  mutate(
+    before = abs(observed),
+    after = abs(weights),
+    .keep = "unused"
+  )
+
+tbl1 <- m.data %>%
+  transmute (
+    first_trimester_exposure_any_lbl,
+    BirthTerminationYear = BirthYearGroup,
+    Mom_Age = Mom_Age_Group,
+    Bedouin,
+    obesity,
+    Smoker,
+    Diabetes,
+    NSAID_indication,
+    first_trimester_exposure_other_antipyretics,
+    PregnancyNum,
+    PregnancyAge_Final,
+    fertilitytx,
+    insemination,
+    ivf,
+    LOPC,
+    folic_acid,
+    SexCode,
+    pregnancy_termination,
+  ) %>%
+  tbl_summary(
+    by = first_trimester_exposure_any_lbl,
+    type = list(
+      c() ~ "continuous",
+      c(BirthTerminationYear, Mom_Age) ~ "categorical",
+      c(
+        Bedouin,
+        Smoker,
+        Diabetes,
+        SexCode,
+        LOPC,
+        pregnancy_termination,
+        NSAID_indication,
+        obesity,
+        folic_acid,
+        fertilitytx,
+        insemination,
+        ivf,
+        first_trimester_exposure_other_antipyretics,
+      ) ~ "dichotomous"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)",
+      c(PregnancyAge_Final, PregnancyNum) ~ "{median} ({p25}, {p75})"
+    ),
+    missing = "ifany",
+    missing_text = "Missing"
+  )  %>%
+  add_p() %>%
+  bold_labels() %>%
+  modify_table_body(
+    ~ .x %>%
+      left_join(smds, by = "variable") %>%
+      mutate(
+        smd_before = if_else(row_type == "label", if_else(is.na(before), "", as.character(round(
+          before, 2
+        ))), ""),
+        smd_after = if_else(row_type == "label", if_else(is.na(after), "", as.character(round(
+          after, 2
+        ))), "")
+      )
+  ) %>%
+  modify_header(smd_before ~ "**aSMD before**", smd_after ~ "**aSMD after**") %>%
+  modify_indent(columns = label,
+                rows = variable %in% c("insemination", "ivf")) %>%
+  modify_footnote_body(
+    footnote = "Covariates included in adjusted models",
+    columns = "label",
+    rows = variable %in% c(
+      "BirthTerminationYear",
+      "Mom_Age",
+      "LOPC",
+      "Bedouin",
+      "NSAID_indication",
+      "Diabetes",
+      "PregnancyNum",
+      "obesity",
+      "folic_acid",
+      "Smoker",
+      "first_trimester_exposure_other_antipyretics"
+    )
+    & row_type == "label"
+  ) %>%
+  as_gt() %>%
+  opt_footnote_marks(marks = c("1", "2", "*")) %>%
+  tab_source_note(
+    source_note = md(
+      "aSMD, absolute Standardized Mean Difference; ATE, Average Treatment Effect; ESS, Effective Sample Size; NSAIDS, Nonsteroidal anti-inflammatory drugs; Tx, Treatment."
+    )
+  )  %>%
+  tab_source_note(source_note = md(
+    paste0(
+      "ESS for matching-adjusted model targeting the ATE were ",
+      ess_treated,
+      " exposed and ",
+      ess_control,
+      " controls. No actual units were discarded during the proccess."
+    )
+  )) %>%
+  tab_source_note(
+    source_note = md(
+      "Maternal obesity was defined using ICD-9 codes 278.0–278.4, diabetes using ICD-9 250.* and gestational diabetes (GDM) 648.00–648.04, and folic acid use as dispensation during the first trimester. Maternal smoking was based on self-report or ICD-9 code 305.1. Exposure to other analgesics or antipyretics was defined as first-trimester exposure to either acetaminophen or dipyrone. NSAID indications were defined as first-trimester diagnoses for conditions commonly treated with NSAIDs, including musculoskeletal/joint disorders, pain and inflammatory conditions, injuries/fractures, and pregnancy-related diagnoses such as threatened abortion or fever/infection. Gravidity refers to total prior pregnancies. "
+    )
+  ) %>%
+  tab_source_note(
+    source_note = md(
+      "Missing values for fetal sex reflect pregnancy terminations due to suspected fetal malformations, for which fetal sex could not be determined."
+    )
+  ) %>%
+  tab_source_note(
+    source_note = md(
+      "SMDs for *Calendar year of birth* were calculated using the ordinal calendar year variable; grouped categories are shown for presentation purposes only."
+    )
+  )
+
+tbl1
+```
+
+### Gravidity - difference measure with its confidence interval
+
+
+```{r}
+m.fit.gravity <- glm(PregnancyNum ~ first_trimester_exposure_any_lbl, data = m.data, family = poisson("log"))
+
+avg_comparisons(
+  m.fit.gravity,
+  variables  = "first_trimester_exposure_any_lbl",
+  type       = "response",      # על סקאלת COUNT
+  comparison = "difference"     # E[Y|1] - E[Y|0]
+)
+```
+
+## Table 2 (simple)
+
+```{r}
+tbl2_simple <- m.data %>%
+  select(
+    first_trimester_exposure_any_lbl,
+    Congenital_Malformations_Major,
+    CVS_Malformations,
+    MSK_Malformations,
+    NEURO_Malformations,
+    CleftPalate_Malformations,
+    GI_Malformations,
+    UG_Malformations,
+    Perinatal_Death,
+    LBW,
+    VLBW,
+    Apgar1,
+    Apgar5,
+    InfantWeigth
+  ) %>%
+  tbl_summary(
+    by = first_trimester_exposure_any_lbl,
+    type = list(
+      c(InfantWeigth) ~ "continuous",
+      c() ~ "categorical",
+      c(
+        Congenital_Malformations_Major,
+        CVS_Malformations,
+        MSK_Malformations,
+        NEURO_Malformations,
+        CleftPalate_Malformations,
+        GI_Malformations,
+        UG_Malformations,
+        Perinatal_Death,
+        LBW,
+        VLBW,
+      ) ~ "dichotomous"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)",
+      c(Apgar1, Apgar5) ~ "{median} ({p25}, {p75})"
+    ),
+    missing = "no"
+  ) %>%
+  add_overall() %>%
+  bold_labels() %>%
+  add_n()
+
+tbl2_simple
+```
+
+## Table 2 - Full adjusted for all systemic malformations
+
+```{r}
+vars_rr <- c(
+  "BirthTerminationYear",
+  "I(BirthTerminationYear ^ 2)",
+  "Mom_Age",
+  "LOPC",
+  "Bedouin",
+  "NSAID_indication",
+  "Diabetes",
+  "PregnancyNum",
+  "obesity",
+  "folic_acid",
+  "Smoker",
+  "first_trimester_exposure_other_antipyretics"
+)
+
+
+maj_df <- rr_summery_cus(
+  first_trimester_exposure_any,
+  Congenital_Malformations_Major,
+  vars_rr,
+  m.data,
+  cluster_col = "MPatientIdentity"
+)
+
+cvs_df <- rr_summery_cus(
+  first_trimester_exposure_any,
+  CVS_Malformations,
+  vars_rr,
+  m.data,
+  cluster_col = "MPatientIdentity"
+)
+
+msk_df <- rr_summery_cus(
+  first_trimester_exposure_any,
+  MSK_Malformations,
+  vars_rr,
+  m.data,
+  cluster_col = "MPatientIdentity"
+)
+
+neuro_df <- rr_summery_cus(
+  first_trimester_exposure_any,
+  NEURO_Malformations,
+  vars_rr,
+  m.data,
+  cluster_col = "MPatientIdentity"
+)
+
+clp_df <- rr_summery_cus(
+  first_trimester_exposure_any,
+  CleftPalate_Malformations,
+  vars_rr,
+  m.data,
+  cluster_col = "MPatientIdentity"
+)
+
+gi_df <- rr_summery_cus(
+  first_trimester_exposure_any,
+  GI_Malformations,
+  vars_rr,
+  m.data,
+  cluster_col = "MPatientIdentity"
+)
+
+gu_df <- rr_summery_cus(
+  first_trimester_exposure_any,
+  UG_Malformations,
+  vars_rr,
+  m.data,
+  cluster_col = "MPatientIdentity"
+)
+```
+
+### Fill In
+```{r}
+tbl2 <- m.data %>%
+  select(
+    first_trimester_exposure_any_lbl,
+    Congenital_Malformations_Major,
+    CVS_Malformations,
+    MSK_Malformations,
+    NEURO_Malformations,
+    CleftPalate_Malformations,
+    GI_Malformations,
+    UG_Malformations
+  ) %>%
+  tbl_summary(
+    by = first_trimester_exposure_any_lbl,
+    type = list(
+      c(
+        Congenital_Malformations_Major,
+        CVS_Malformations,
+        MSK_Malformations,
+        NEURO_Malformations,
+        CleftPalate_Malformations,
+        GI_Malformations,
+        UG_Malformations
+      ) ~ "dichotomous"
+    ),
+    statistic = list(all_categorical() ~ "{n} ({p}%)"),
+    missing = "no"
+  )
+
+
+tbl2_df <- tbl2 %>% as.data.frame()
+
+names(tbl2_df)[1] <- "malformation"
+
+tbl2_df <- tbl2_df %>%
+  left_join((
+    bind_rows(maj_df, cvs_df, msk_df, neuro_df, clp_df, gi_df, gu_df)
+  ), by = "malformation")
+
+
+
+table2_for_print <- tbl2_df
+names(table2_for_print)[2] <- "cases_nsaids"
+names(table2_for_print)[3] <- "cases_unexposed"
+
+gt(
+  table2_for_print %>%
+    transmute(
+      malformation,
+      cases_unexposed,
+      unadj_incidence_unexposed_conj = est_ci(
+        unadj_incidence_unexposed,
+        unadj_incidence_low_unexposed,
+        unadj_incidence_high_unexposed
+      ),
+      cases_nsaids,
+      unadj_incidence_nsaids_conj = est_ci(
+        unadj_incidence_nsaids,
+        unadj_incidence_low_nsaids,
+        unadj_incidence_high_nsaids
+      ),
+      unadj_rr_conj = est_ci(unadj_rr, unadj_rr_low, unadj_rr_high),
+      adj_rr_conj = est_ci(adj_rr, adj_rr_low, adj_rr_high),
+      adj_wts_rr_conj = est_ci(adj_wts_rr, adj_wts_rr_low, adj_wts_rr_high),
+      adj_wts_rr,
+      adj_wts_rr_low,
+      adj_wts_rr_high
+    ),
+  rowname_col = "malformation"
+) |>
+  cols_label(
+    malformation = md("**Malformation**"),
+    cases_nsaids = "Events",
+    unadj_incidence_nsaids_conj = "Events/1000 (95% CI)",
+    cases_unexposed = "Events",
+    unadj_incidence_unexposed_conj = "Events/1000 (95% CI)",
+    unadj_rr_conj = "Unadjusted",
+    adj_rr_conj = "Adjusted",
+    adj_wts_rr_conj = "Matched Adjusted",
+    adj_wts_rr = ""
+  ) |>
+  tab_style(style = cell_text(align = "center"),
+            locations = cells_column_labels(columns = everything())) |>
+  tab_spanner(
+    label = md(paste0(
+      "**Unexposed** <br>(N=", table(tbl2$inputs$data[[tbl2$inputs$by]])[2], ")"
+    )),
+    columns = c(cases_unexposed, unadj_incidence_unexposed_conj)
+  ) |>
+  tab_spanner(
+    label = md(paste0(
+      "**NSAID** <br>(N=", table(tbl2$inputs$data[[tbl2$inputs$by]])[1], ")"
+    )),
+    columns = c(cases_nsaids, unadj_incidence_nsaids_conj)
+  ) |>
+  tab_spanner(
+    label = md("**RR** [95% CI]"),
+    columns = c(unadj_rr_conj, adj_rr_conj, adj_wts_rr_conj, adj_wts_rr)
+  ) |>
+  cols_align(
+    align = "left",
+    columns = c(
+      cases_unexposed,
+      unadj_incidence_unexposed_conj,
+      cases_nsaids,
+      unadj_incidence_nsaids_conj,
+      unadj_rr_conj,
+      adj_rr_conj,
+      adj_wts_rr_conj
+    )
+  ) |>
+  tab_stub_indent(
+    rows = c(
+      "Cardiovascular",
+      "Musculoskeletal",
+      "Cleft palate",
+      "Central nervous system",
+      "Gastrointestinal",
+      "Genitourinary"
+    ),
+    indent = 3
+  ) |>
+  tab_options(table.width = px(1400)) |>
+  fmt_number(drop_trailing_zeros = FALSE) |>
+  gt_plt_conf_int(
+    adj_wts_rr,
+    c(adj_wts_rr_low, adj_wts_rr_high),
+    ref_line = 1,
+    text_size = 0,
+    palette = c("black", "darkgrey", "black", "black")
+  ) |>
+  cols_hide(columns = c(adj_wts_rr_low, adj_wts_rr_high))
+```
+
+# Sensetivity Analysis for other antipyretics
+
+## removing other antipyretics from model
+
+### matching 
+
+```{r wrangling removing other anypiretics and matching}
+m.out1 <- matchit(
+  first_trimester_exposure_any ~
+    BirthTerminationYear +
+    I(BirthTerminationYear^2) +
+    Mom_Age +
+    LOPC +
+    Bedouin +
+    NSAID_indication +
+    Diabetes +
+    PregnancyNum +
+    obesity +
+    folic_acid +
+    Smoker,
+  data = clean_df_excluded,
+  method = "quick",
+  estimand = "ATE"
+)
+
+m.data1 <- match.data(m.out1) |>
+  labelled::set_variable_labels(!!!metadata, .strict = FALSE)
+
+ess_treated1  <- formatC(cobalt::bal.tab(m.out1, un = FALSE)$Observations["Matched (ESS)", "Treated"],  format = "f", digits = 0, big.mark = ",")
+ess_control1  <- formatC(cobalt::bal.tab(m.out1, un = FALSE)$Observations["Matched (ESS)", "Control"],  format = "f", digits = 0, big.mark = ",")
+```
+
+### analysis 
+
+```{r}
+vars_rr <- c(
+  "BirthTerminationYear",
+  "I(BirthTerminationYear ^ 2)",
+  "Mom_Age",
+  "LOPC",
+  "Bedouin",
+  "NSAID_indication",
+  "Diabetes",
+  "PregnancyNum",
+  "obesity",
+  "folic_acid",
+  "Smoker"
+)
+
+
+maj_df_removing <- rr_summery_cus(
+  first_trimester_exposure_any,
+  Congenital_Malformations_Major,
+  vars_rr,
+  m.data1,
+  cluster_col = "MPatientIdentity"
+)
+
+cvs_df_removing <- rr_summery_cus(
+  first_trimester_exposure_any,
+  CVS_Malformations,
+  vars_rr,
+  m.data1,
+  cluster_col = "MPatientIdentity"
+)
+
+msk_df_removing <- rr_summery_cus(
+  first_trimester_exposure_any,
+  MSK_Malformations,
+  vars_rr,
+  m.data1,
+  cluster_col = "MPatientIdentity"
+)
+
+neuro_df_removing <- rr_summery_cus(
+  first_trimester_exposure_any,
+  NEURO_Malformations,
+  vars_rr,
+  m.data1,
+  cluster_col = "MPatientIdentity"
+)
+
+clp_df_removing <- rr_summery_cus(
+  first_trimester_exposure_any,
+  CleftPalate_Malformations,
+  vars_rr,
+  m.data1,
+  cluster_col = "MPatientIdentity"
+)
+
+gi_df_removing <- rr_summery_cus(
+  first_trimester_exposure_any,
+  GI_Malformations,
+  vars_rr,
+  m.data1,
+  cluster_col = "MPatientIdentity"
+)
+
+gu_df_removing <- rr_summery_cus(
+  first_trimester_exposure_any,
+  UG_Malformations,
+  vars_rr,
+  m.data1,
+  cluster_col = "MPatientIdentity"
+)
+
+m1_est_df <- bind_rows(
+  maj_df_removing,
+  cvs_df_removing,
+  msk_df_removing,
+  neuro_df_removing,
+  clp_df_removing,
+  gi_df_removing,
+  gu_df_removing
+) %>%
+  transmute(malformation,
+         m1_est = est_ci(adj_wts_rr, adj_wts_rr_low, adj_wts_rr_high))
+
+m1_est_df
+```
+
+
+## replacing "other antipyretics before NSAIDs" in the model
+
+### matching 
+
+```{r wrangling before other anypiretics and matching}
+m.out2 <- matchit(
+  first_trimester_exposure_any ~
+    BirthTerminationYear +
+    I(BirthTerminationYear^2) +
+    Mom_Age +
+    LOPC +
+    Bedouin +
+    NSAID_indication +
+    Diabetes +
+    PregnancyNum +
+    obesity +
+    folic_acid +
+    Smoker +
+    other_antipyretics_before_NSAIDs,
+  data = clean_df_excluded,
+  method = "quick",
+  estimand = "ATE"
+)
+
+m.data2 <- match.data(m.out2) |>
+  labelled::set_variable_labels(!!!metadata, .strict = FALSE)
+
+ess_treated2  <- formatC(cobalt::bal.tab(m.out2, un = FALSE)$Observations["Matched (ESS)", "Treated"],  format = "f", digits = 0, big.mark = ",")
+ess_control2  <- formatC(cobalt::bal.tab(m.out2, un = FALSE)$Observations["Matched (ESS)", "Control"],  format = "f", digits = 0, big.mark = ",")
+```
+
+### analysis 
+
+```{r}
+vars_rr <- c(
+  "BirthTerminationYear",
+  "I(BirthTerminationYear ^ 2)",
+  "Mom_Age",
+  "LOPC",
+  "Bedouin",
+  "NSAID_indication",
+  "Diabetes",
+  "PregnancyNum",
+  "obesity",
+  "folic_acid",
+  "Smoker",
+  "other_antipyretics_before_NSAIDs"
+)
+
+
+maj_df_before <- rr_summery_cus(
+  first_trimester_exposure_any,
+  Congenital_Malformations_Major,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+cvs_df_before <- rr_summery_cus(
+  first_trimester_exposure_any,
+  CVS_Malformations,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+msk_df_before <- rr_summery_cus(
+  first_trimester_exposure_any,
+  MSK_Malformations,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+neuro_df_before <- rr_summery_cus(
+  first_trimester_exposure_any,
+  NEURO_Malformations,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+clp_df_before <- rr_summery_cus(
+  first_trimester_exposure_any,
+  CleftPalate_Malformations,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+gi_df_before <- rr_summery_cus(
+  first_trimester_exposure_any,
+  GI_Malformations,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+gu_df_before <- rr_summery_cus(
+  first_trimester_exposure_any,
+  UG_Malformations,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+m2_est_df <- bind_rows(
+  maj_df_before,
+  cvs_df_before,
+  msk_df_before,
+  neuro_df_before,
+  clp_df_before,
+  gi_df_before,
+  gu_df_before
+) %>%
+  transmute(malformation,
+         m2_est = est_ci(adj_wts_rr, adj_wts_rr_low, adj_wts_rr_high))
+
+m2_est_df
+```
+
+
+## replacing "other antipyretics before NSAIDs" and adding "other antipyretics after NSAIDs" to the model
+
+### analysis 
+
+```{r}
+vars_rr <- c(
+  "BirthTerminationYear",
+  "I(BirthTerminationYear ^ 2)",
+  "Mom_Age",
+  "LOPC",
+  "Bedouin",
+  "NSAID_indication",
+  "Diabetes",
+  "PregnancyNum",
+  "obesity",
+  "folic_acid",
+  "Smoker",
+  "other_antipyretics_before_NSAIDs",
+  "other_antipyretics_after_NSAIDs"
+)
+
+maj_df_before_after <- rr_summery_cus(
+  first_trimester_exposure_any,
+  Congenital_Malformations_Major,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+cvs_df_before_after <- rr_summery_cus(
+  first_trimester_exposure_any,
+  CVS_Malformations,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+msk_df_before_after <- rr_summery_cus(
+  first_trimester_exposure_any,
+  MSK_Malformations,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+neuro_df_before_after <- rr_summery_cus(
+  first_trimester_exposure_any,
+  NEURO_Malformations,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+clp_df_before_after <- rr_summery_cus(
+  first_trimester_exposure_any,
+  CleftPalate_Malformations,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+gi_df_before_after <- rr_summery_cus(
+  first_trimester_exposure_any,
+  GI_Malformations,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+gu_df_before_after <- rr_summery_cus(
+  first_trimester_exposure_any,
+  UG_Malformations,
+  vars_rr,
+  m.data2,
+  cluster_col = "MPatientIdentity"
+)
+
+m3_est_df <- bind_rows(
+  maj_df_before_after,
+  cvs_df_before_after,
+  msk_df_before_after,
+  neuro_df_before_after,
+  clp_df_before_after,
+  gi_df_before_after,
+  gu_df_before_after
+) %>%
+  transmute(malformation,
+         m3_est = est_ci(adj_wts_rr, adj_wts_rr_low, adj_wts_rr_high))
+
+m3_est_df
+```
+
+## Fill In
+
+```{r}
+tbl3 <- m.data2 %>%
+  select(
+    first_trimester_exposure_any_lbl,
+    Congenital_Malformations_Major,
+    CVS_Malformations,
+    MSK_Malformations,
+    NEURO_Malformations,
+    CleftPalate_Malformations,
+    GI_Malformations,
+    UG_Malformations
+  ) %>%
+  tbl_summary(
+    by = first_trimester_exposure_any_lbl,
+    type = list(
+      c(
+        Congenital_Malformations_Major,
+        CVS_Malformations,
+        MSK_Malformations,
+        NEURO_Malformations,
+        CleftPalate_Malformations,
+        GI_Malformations,
+        UG_Malformations
+      ) ~ "dichotomous"
+    ),
+    statistic = list(all_categorical() ~ "{n} ({p}%)"),
+    missing = "no"
+  )
+
+
+tbl3_df <- tbl3 %>% as.data.frame()
+
+names(tbl3_df)[1] <- "malformation"
+
+tbl3_df <- tbl3_df %>%
+  left_join(m1_est_df, by = "malformation") %>%
+  left_join(m2_est_df, by = "malformation") %>%
+  left_join(m3_est_df, by = "malformation")
+
+
+
+table3_for_print <- tbl3_df
+names(table3_for_print)[2] <- "cases_nsaids"
+names(table3_for_print)[3] <- "cases_unexposed"
+
+table3_gt <- gt(table3_for_print, rowname_col = "malformation") |>
+  cols_label(
+    malformation = md("**Malformation**"),
+    cases_nsaids = md(paste0(
+      "**NSAID** <br>(N=", table(tbl3$inputs$data[[tbl3$inputs$by]])[1], ")"
+    )),
+    cases_unexposed = md(paste0(
+      "**Unexposed** <br>(N=", table(tbl3$inputs$data[[tbl3$inputs$by]])[2], ")"
+    )),
+    m1_est = "Model 1",
+    m2_est = "Model 2",
+    m3_est = "Model 3"
+  ) |>
+  tab_style(style = cell_text(align = "center"),
+            locations = cells_column_labels(columns = everything())) |>
+  tab_spanner(label = md("**RR** [95% CI]"),
+              columns = c(m1_est, m2_est, m3_est)) |>
+  cols_align(
+    align = "left",
+    columns = c(cases_unexposed, cases_nsaids, m1_est, m2_est, m3_est)
+  ) |>
+  tab_stub_indent(
+    rows = c(
+      "Cardiovascular",
+      "Musculoskeletal",
+      "Cleft palate",
+      "Central nervous system",
+      "Gastrointestinal",
+      "Genitourinary"
+    ),
+    indent = 3
+  )  %>%
+  tab_source_note(
+    source_note = md(
+      "ATE, Average Treatment Effect; ESS, Effective Sample Size; NSAIDS, Nonsteroidal anti-inflammatory drugs."
+    )
+  ) %>%
+    tab_source_note(
+    source_note = md(
+      "Model 1 was matched and adjusted for birth termination year and its quadratic term, maternal age, pregnancy number, lack of prenatal care, Bedouin population group, NSAID indication, and maternal diabetes, obesity, folic acid use, and smoking. Model 2 included all Model 1 covariates, with additional matching and adjustment for exposure to other antipyretics before NSAID exposure. Model 3 used the same design as Model 2, with additional adjustment, but not matching, for exposure to other antipyretics after NSAID exposure."
+    )
+  ) %>%
+  tab_footnote(footnote = md(
+    paste0(
+      "ESS for matching-adjusted model targeting the ATE were ",
+      ess_treated1,
+      " exposed and ",
+      ess_control1,
+      " controls. No actual units were discarded during the proccess."
+    )
+  ),
+  locations = cells_column_labels(columns = m1_est)) %>%
+  tab_footnote(footnote = md(
+    paste0(
+      "ESS for matching-adjusted model targeting the ATE were ",
+      ess_treated2,
+      " exposed and ",
+      ess_control2,
+      " controls. No actual units were discarded during the proccess."
+    )
+  ),
+  locations = cells_column_labels(columns = c(m2_est, m3_est)))
+
+table3_gt
+```
+
+
+
+## exluding other antipyretics
+
+### matching 
+
+```{r wrangling exclusion other anypiretics and matching}
+m.out4 <- matchit(
+  first_trimester_exposure_any ~
+    BirthTerminationYear +
+    I(BirthTerminationYear^2) +
+    Mom_Age +
+    LOPC +
+    Bedouin +
+    NSAID_indication +
+    Diabetes +
+    PregnancyNum +
+    obesity +
+    folic_acid +
+    Smoker,
+  data = (
+    clean_df_excluded %>% filter(
+      first_trimester_exposure_other_antipyretics == 0
+    )
+  ),
+  method = "quick",
+  estimand = "ATE"
+)
+
+m.data4 <- match.data(m.out4) |>
+  labelled::set_variable_labels(!!!metadata, .strict = FALSE)
+
+ess_treated4  <- formatC(cobalt::bal.tab(m.out4, un = FALSE)$Observations["Matched (ESS)", "Treated"],  format = "f", digits = 0, big.mark = ",")
+ess_control4  <- formatC(cobalt::bal.tab(m.out4, un = FALSE)$Observations["Matched (ESS)", "Control"],  format = "f", digits = 0, big.mark = ",")
+```
+
+
+### analysis 
+
+```{r}
+vars_rr <- c(
+  "BirthTerminationYear",
+  "I(BirthTerminationYear ^ 2)",
+  "Mom_Age",
+  "LOPC",
+  "Bedouin",
+  "NSAID_indication",
+  "Diabetes",
+  "PregnancyNum",
+  "obesity",
+  "folic_acid",
+  "Smoker"
+)
+
+
+maj_df_exluding <- rr_summery_cus(
+  first_trimester_exposure_any,
+  Congenital_Malformations_Major,
+  vars_rr,
+  m.data4,
+  cluster_col = "MPatientIdentity"
+)
+
+cvs_df_exluding <- rr_summery_cus(
+  first_trimester_exposure_any,
+  CVS_Malformations,
+  vars_rr,
+  m.data4,
+  cluster_col = "MPatientIdentity"
+)
+
+msk_df_exluding <- rr_summery_cus(
+  first_trimester_exposure_any,
+  MSK_Malformations,
+  vars_rr,
+  m.data4,
+  cluster_col = "MPatientIdentity"
+)
+
+neuro_df_exluding <- rr_summery_cus(
+  first_trimester_exposure_any,
+  NEURO_Malformations,
+  vars_rr,
+  m.data4,
+  cluster_col = "MPatientIdentity"
+)
+
+clp_df_exluding <- rr_summery_cus(
+  first_trimester_exposure_any,
+  CleftPalate_Malformations,
+  vars_rr,
+  m.data4,
+  cluster_col = "MPatientIdentity"
+)
+
+gi_df_exluding <- rr_summery_cus(
+  first_trimester_exposure_any,
+  GI_Malformations,
+  vars_rr,
+  m.data4,
+  cluster_col = "MPatientIdentity"
+)
+
+gu_df_exluding <- rr_summery_cus(
+  first_trimester_exposure_any,
+  UG_Malformations,
+  vars_rr,
+  m.data4,
+  cluster_col = "MPatientIdentity"
+)
+
+m4_est_df <- bind_rows(
+  maj_df_exluding,
+  cvs_df_exluding,
+  msk_df_exluding,
+  neuro_df_exluding,
+  clp_df_exluding,
+  gi_df_exluding,
+  gu_df_exluding
+) %>%
+  transmute(malformation,
+         m4_est = est_ci(adj_wts_rr, adj_wts_rr_low, adj_wts_rr_high))
+
+m4_est_df
+```
+
+## Fill In
+```{r}
+tbl4 <- m.data4 %>%
+  select(
+    first_trimester_exposure_any_lbl,
+    Congenital_Malformations_Major,
+    CVS_Malformations,
+    MSK_Malformations,
+    NEURO_Malformations,
+    CleftPalate_Malformations,
+    GI_Malformations,
+    UG_Malformations
+  ) %>%
+  tbl_summary(
+    by = first_trimester_exposure_any_lbl,
+    type = list(
+      c(
+        Congenital_Malformations_Major,
+        CVS_Malformations,
+        MSK_Malformations,
+        NEURO_Malformations,
+        CleftPalate_Malformations,
+        GI_Malformations,
+        UG_Malformations
+      ) ~ "dichotomous"
+    ),
+    statistic = list(all_categorical() ~ "{n} ({p}%)"),
+    missing = "no"
+  )
+
+
+tbl4_df <- tbl4 %>% as.data.frame()
+
+names(tbl4_df)[1] <- "malformation"
+
+tbl4_df <- tbl4_df %>%
+  left_join(m4_est_df, by = "malformation")
+
+
+
+table4_for_print <- tbl4_df
+names(table4_for_print)[2] <- "cases_nsaids"
+names(table4_for_print)[3] <- "cases_unexposed"
+
+table4_gt <- gt(
+  table4_for_print,
+  rowname_col = "malformation"
+) |>
+  cols_label(
+    malformation = md("**Malformation**"),
+    cases_nsaids = md(paste0(
+      "**NSAID** <br>(N=", table(tbl4$inputs$data[[tbl4$inputs$by]])[1], ")"
+    )),
+    cases_unexposed = md(paste0(
+      "**Unexposed** <br>(N=", table(tbl4$inputs$data[[tbl4$inputs$by]])[2], ")"
+    )),
+    m4_est = md("**RR** [95% CI]")
+  ) |>
+  tab_style(style = cell_text(align = "center"),
+            locations = cells_column_labels(columns = everything())) |>
+  cols_align(
+    align = "left",
+    columns = c(
+      cases_unexposed,
+      cases_nsaids,
+      m4_est
+    )
+  ) |>
+  tab_stub_indent(
+    rows = c(
+      "Cardiovascular",
+      "Musculoskeletal",
+      "Cleft palate",
+      "Central nervous system",
+      "Gastrointestinal",
+      "Genitourinary"
+    ),
+    indent = 3
+  ) %>%
+  tab_source_note(
+    source_note = md(paste0("Effective sample size for matching-adjusted model targeting the average treatment effect were ", ess_treated4, " exposed and ", ess_control4, " controls. No actual units were discarded during the proccess.")
+    )) %>%
+  tab_source_note(
+    source_note = "The model was matched and adjusted for birth termination year and its quadratic term, maternal age, pregnancy number, lack of prenatal care, Bedouin population group, NSAID indication, and maternal diabetes, obesity, folic acid use, and smoking, only after the exclusion of all pregnencies exposed to other antipyretics")
+
+table4_gt
+```
+
+------------------------------------------------------------------------
+
+# Technical Details
+
+## Save objects
+
+```{r, eval=TRUE}
+all_pop_tbl1 <- table1 %>% as_gt()
+all_matched_tbl1 <- tbl1
+all_table1_ddd <- table1_ddd %>% as_gt()
+all_ddd_table <- ddd_table
+all_love_plot <- love_plot
+all_msummary <- m.summary
+all_tbl2_df <- tbl2_df
+all_nsaid_indication_tbl <- nsaid_indication_tbl
+all_table3_gt <- table3_gt
+all_table4_gt <- table4_gt
+
+save(
+  all_matched_tbl1,
+  all_ddd_table,
+  all_tbl2_df,
+  file = "main.Rda"
+)
+
+save(
+  all_pop_tbl1,
+  all_table1_ddd,
+  all_love_plot,
+  all_msummary,
+  all_nsaid_indication_tbl,
+  all_table3_gt,
+  all_table4_gt,
+  file = "supp.Rda"
+)
+```
+
+
+## R Session Info:
+
+```{r}
+sessionInfo()
+```
