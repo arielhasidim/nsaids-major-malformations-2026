@@ -1,8 +1,8 @@
 # First Trimester Nonsteroidal Anti-inflammatory Drugs Exposure and Risk of Major Congenital Malformations: a large population-based cohort of pregnancies
 
-[Paper DOI:XXX](http://www...)
+[![DOI](https://zenodo.org/badge/1182896951.svg)](https://doi.org/10.5281/zenodo.19043979)
 
-[Code DOI (Zenodo):XXX](http://www...)
+[Paper DOI:XXX](http://www...)
 
 ## Abstract
 
