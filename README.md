@@ -1,4 +1,4 @@
-# FFirst Trimester Nonsteroidal Anti-inflammatory Drugs Exposure and Risk of Major Congenital Malformations: a retrospective register-based cohort study
+# First Trimester Nonsteroidal Anti-inflammatory Drugs Exposure and Risk of Major Congenital Malformations: a retrospective register-based cohort study
 
 [![DOI](https://zenodo.org/badge/1182896951.svg)](https://doi.org/10.5281/zenodo.19043979)
 
