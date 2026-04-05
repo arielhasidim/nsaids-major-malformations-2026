@@ -17,6 +17,15 @@ A total of 264,858 singleton pregnancies were included in the final cohort; 20,2
 
 **Conclusion:** In this large, population-based cohort, we found no evidence supporting an association between first-trimester exposure to NSAID and MCMs, providing reassuring evidence regarding their fetal safety in early pregnancy.
 
+## Additional data files
+
+This repository also includes two CSV files containing the numerical values underlying selected study figures, provided to support data transparency.
+
+- **`annual_exposure_rates.csv`**: numerical data underlying **Figure 3**. Each row represents a calendar year (`BirthTerminationYear`), and each drug-specific column contains the **absolute number of pregnancies** with first-trimester dispensation exposure to that NSAID in that year. Units: **count of exposed pregnancies per year**.
+
+- **`UpSet.csv`**: numerical data underlying **Supplementary Figure S1.1** (UpSet plot of overlapping antipyretic/NSAID exposures). Each row represents one exposure combination (`combination`), `freq` gives the **absolute number of pregnancies** in that combination, and the binary drug columns indicate whether each medication/exposure category is included in the combination (`1` = included, `0` = not included). `n_sets` indicates the **number of exposure categories** included in that combination. Units: **count of pregnancies** for `freq`; **binary indicator (0/1)** for exposure-membership columns.
+
+`Unnamed: 0` is a row index exported from R and does not represent a study variable.
 
 ## Citation
 
