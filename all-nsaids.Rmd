@@ -414,6 +414,41 @@ table1
 UpSetR generates static UpSet plots. The UpSet technique visualizes set intersections in a matrix layout and introduces aggregates based on groupings and queries. 
 
 ```{r}
+upset_input <- clean_df %>%
+  transmute(
+    Ibuprofen   = as.integer(first_trimester_exposure_Ibuprofen),
+    Diclofenac  = as.integer(first_trimester_exposure_Diclofenac),
+    Naproxen    = as.integer(first_trimester_exposure_Naproxen),
+    Indometacin = as.integer(first_trimester_exposure_Indometacin),
+    Etodolac    = as.integer(first_trimester_exposure_Etodolac),
+    Piroxicam   = as.integer(first_trimester_exposure_Piroxicam),
+    Lornoxicam  = as.integer(first_trimester_exposure_Lornoxicam),
+    `Other Antipyretics` = as.integer(first_trimester_exposure_other_antipyretics)
+  ) %>%
+  mutate(across(everything(), ~ replace_na(., 0L))) %>%
+  mutate(across(everything(), ~ as.integer(. > 0)))
+
+summary_df <- upset_input %>%
+  count(across(everything()), name = "freq", sort = TRUE) %>%
+  filter(rowSums(across(-freq)) > 0) %>%
+  mutate(
+    n_sets = rowSums(pick(-freq)),
+    combination = apply(
+      as.data.frame(pick(-freq, -n_sets)),
+      1,
+      function(x) paste(names(x)[as.logical(x)], collapse = " + ")
+    )
+  ) %>%
+  select(combination, n_sets, freq, everything()) %>%
+  arrange(desc(freq))
+
+summary_top10 <- summary_df %>%
+  slice_head(n = 10)
+
+write.csv(summary_top10, "UpSet.csv")
+
+summary_top10
+
 clean_df %>%
   transmute(
     Ibuprofen   = as.integer(first_trimester_exposure_Ibuprofen),
@@ -428,10 +463,10 @@ clean_df %>%
   UpSetR::upset(
   sets = c("Other Antipyretics", "Ibuprofen", "Diclofenac","Naproxen","Etodolac","Indometacin","Piroxicam","Lornoxicam"),
   nsets = 0,
-  nintersects = 10,        # כמה שילובים להציג
+  nintersects = 10,
   order.by = "freq",
   decreasing = TRUE,
-  mb.ratio = c(0.6, 0.4),  # יחס בין main bars ל-set size bars
+  mb.ratio = c(0.6, 0.4),
   empty.intersections = "off"
   # ,
   #   queries = list(
@@ -449,6 +484,31 @@ clean_df %>%
 ## Annual exposure rates
 
 ```{r}
+annual_exposure_rates <- clean_df %>%
+  transmute(
+    BirthTerminationYear,
+    first_trimester_exposure_Ibuprofen,
+    first_trimester_exposure_Diclofenac,
+    first_trimester_exposure_Naproxen,
+    first_trimester_exposure_Indometacin,
+    first_trimester_exposure_Etodolac,
+    first_trimester_exposure_Piroxicam,
+    first_trimester_exposure_Lornoxicam
+  ) %>%
+  summarise(
+    .by = BirthTerminationYear,
+    Ibuprofen = sum(first_trimester_exposure_Ibuprofen),
+    Diclofenac = sum(first_trimester_exposure_Diclofenac),
+    Naproxen = sum(first_trimester_exposure_Naproxen),
+    Indometacin = sum(first_trimester_exposure_Indometacin),
+    Etodolac = sum(first_trimester_exposure_Etodolac),
+    Piroxicam = sum(first_trimester_exposure_Piroxicam),
+    Lornoxicam = sum(first_trimester_exposure_Lornoxicam)
+  ) %>%
+  arrange(BirthTerminationYear)
+
+write.csv(annual_exposure_rates, "annual_exposure_rates.csv")
+
 clean_df %>%
   transmute(
     BirthTerminationYear,
@@ -500,7 +560,18 @@ clean_df %>%
     linetype = "NSAID",
     shape = "NSAID"
   ) +
-  scale_color_nejm() +
+  # scale_color_nejm()
+  scale_color_manual(
+    values = c(
+      "Ibuprofen"   = "#7E6148",
+      "Diclofenac"  = "#0072B5",
+      "Naproxen"    = "#E18727",
+      "Indometacin" = "#4DBBD5",
+      "Etodolac"    = "#7876B1",
+      "Piroxicam"   = "#6F99AD",
+      "Lornoxicam"  = "#FFDC91"
+    )
+  ) +
   theme_classic()
 ```
 
@@ -1976,11 +2047,13 @@ all_tbl2_df <- tbl2_df
 all_nsaid_indication_tbl <- nsaid_indication_tbl
 all_table3_gt <- table3_gt
 all_table4_gt <- table4_gt
+all_annual_exposure_rates <- annual_exposure_rates
 
 save(
   all_matched_tbl1,
   all_ddd_table,
   all_tbl2_df,
+  all_annual_exposure_rates,
   file = "main.Rda"
 )
 
