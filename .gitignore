@@ -5,7 +5,7 @@
 make_nsaid_variants.R
 *.tiff
 *.Rda
-*.csv
+# *.csv
 *.html
 *.docx
 *_files

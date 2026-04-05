@@ -1,0 +1,11 @@
+"","combination","n_sets","freq","Ibuprofen","Diclofenac","Naproxen","Indometacin","Etodolac","Piroxicam","Lornoxicam","Other Antipyretics"
+"1","Other Antipyretics",1,32729,0,0,0,0,0,0,0,1
+"2","Ibuprofen + Other Antipyretics",2,6871,1,0,0,0,0,0,0,1
+"3","Ibuprofen",1,4774,1,0,0,0,0,0,0,0
+"4","Diclofenac + Other Antipyretics",2,1685,0,1,0,0,0,0,0,1
+"5","Diclofenac",1,1314,0,1,0,0,0,0,0,0
+"6","Naproxen + Other Antipyretics",2,1142,0,0,1,0,0,0,0,1
+"7","Naproxen",1,964,0,0,1,0,0,0,0,0
+"8","Ibuprofen + Diclofenac + Other Antipyretics",3,610,1,1,0,0,0,0,0,1
+"9","Ibuprofen + Naproxen + Other Antipyretics",3,483,1,0,1,0,0,0,0,1
+"10","Etodolac",1,424,0,0,0,0,1,0,0,0
