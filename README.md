@@ -2,7 +2,9 @@
 
 [![DOI](https://zenodo.org/badge/1182896951.svg)](https://doi.org/10.5281/zenodo.19043979)
 
-[Paper DOI:XXX](http://www...)
+[Paper DOI:10.1371/journal.pmed.1005063](https://doi.org/10.1371/journal.pmed.1005063), 
+
+PMEDICINE-D-25-04198R4
 
 ## Abstract
 
