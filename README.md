@@ -31,9 +31,30 @@ This repository also includes two CSV files containing the numerical values unde
 
 ## Citation
 
-> Hasidim, ...
+If you use this repository, please cite both the associated article and the archived code release.
+
+**Article**
+
+Hasidim AA, Ben Shitrit I, Idan D, Michael T, Levy A, Pariente G, Lunenfeld E, Daniel S. *First Trimester Nonsteroidal Anti-inflammatory Drugs Exposure and Risk of Major Congenital Malformations: a retrospective register-based cohort study*. PLOS Medicine. DOI: https://doi.org/10.1371/journal.pmed.1005063
+
+**Code archive**
+
+Hasidim AA. *nsaids-major-malformations-2026*. Zenodo. DOI: https://doi.org/10.5281/zenodo.19043979
 
 ```bibtex
-@article{...
+@article{hasidim2026nsaids,
+  author  = {Hasidim, Ariel Avraham and Ben Shitrit, Itamar and Idan, Daphna and Michael, Tal and Levy, Amalia and Pariente, Gali and Lunenfeld, Eitan and Daniel, Sharon},
+  title   = {First Trimester Nonsteroidal Anti-inflammatory Drugs Exposure and Risk of Major Congenital Malformations: a retrospective register-based cohort study},
+  journal = {PLOS Medicine},
+  year    = {2026},
+  doi     = {10.1371/journal.pmed.1005063}
 }
-```
+
+@software{hasidim2026code,
+  author    = {Hasidim, Ariel Avraham},
+  title     = {nsaids-major-malformations-2026},
+  year      = {2026},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.19043979},
+  url       = {https://doi.org/10.5281/zenodo.19043979}
+}
