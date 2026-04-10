@@ -2,7 +2,6 @@
 
 [![DOI](https://zenodo.org/badge/1182896951.svg)](https://doi.org/10.5281/zenodo.19043979)
 
-
 ## Abstract
 
 **Background:** Pain and fever are common in early pregnancy, yet their management poses a major clinical dilemma. Although not confirmed, recent studies have raised safety concerns regarding acetaminophen. Evidence on the use of nonsteroidal anti-inflammatory drugs (NSAID) in the first trimester remains inconclusive. This uncertainty has left clinicians with limited evidence to guide treatment decisions. This study evaluated the association between first-trimester NSAID exposure and the risk of major congenital malformations (MCMs) in a large, population-based cohort of pregnancies.
