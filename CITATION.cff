@@ -1,22 +1,17 @@
-```yaml
 cff-version: 1.2.0
 message: "If you use this repository, please cite the associated article and the archived software record."
-title: "nsaids-major-malformations-2026"
-type: software
-
 authors:
   - family-names: "Hasidim"
     given-names: "Ariel Avraham"
     orcid: "https://orcid.org/0000-0003-1785-0952"
-
-doi: 10.5281/zenodo.19043979
-repository-code: "https://github.com/arielhasidim/nsaids-major-malformations-2026"
+title: "nsaids-major-malformations-2026"
+version: "1.0.0"
+doi: "10.5281/zenodo.19043979"
+date-released: 2026-04-10
 url: "https://github.com/arielhasidim/nsaids-major-malformations-2026"
-license: "MIT"
 
 preferred-citation:
   type: article
-  title: "First Trimester Nonsteroidal Anti-inflammatory Drugs Exposure and Risk of Major Congenital Malformations: a retrospective register-based cohort study"
   authors:
     - family-names: "Hasidim"
       given-names: "Ariel Avraham"
@@ -34,6 +29,7 @@ preferred-citation:
       given-names: "Eitan"
     - family-names: "Daniel"
       given-names: "Sharon"
-  journal: "PLOS Medicine"
-  year: 2026
   doi: "10.1371/journal.pmed.1005063"
+  journal: "PLOS Medicine"
+  title: "First Trimester Nonsteroidal Anti-inflammatory Drugs Exposure and Risk of Major Congenital Malformations: a retrospective register-based cohort study"
+  year: 2026
