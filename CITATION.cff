@@ -1,6 +1,6 @@
 ```yaml
 cff-version: 1.2.0
-message: "If you use this repository, please cite the archived software release and the associated article."
+message: "If you use this repository, please cite the associated article and the archived software record."
 title: "nsaids-major-malformations-2026"
 type: software
 
@@ -11,7 +11,7 @@ authors:
 
 doi: 10.5281/zenodo.19043979
 repository-code: "https://github.com/arielhasidim/nsaids-major-malformations-2026"
-url: "https://zenodo.org/records/19428466"
+url: "https://github.com/arielhasidim/nsaids-major-malformations-2026"
 license: "MIT"
 
 preferred-citation:
